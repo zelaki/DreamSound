@@ -7,5 +7,6 @@ Recently, text-to-music generation models have achieved unprecedented results in
 
 - [x] Release code!
 - [ ] Example code for training and evaluation
-- [ ] Gradio app for the methods
+- [ ] Gradio app!
+- [ ] Release code for Personalized Style Transfer
 
