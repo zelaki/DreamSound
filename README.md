@@ -21,17 +21,20 @@ git clone https://huggingface.co/cvssp/audioldm-m-full
   ```
   
   ### Training Examples
+
   #### DreamBooth:
+
+  To train the personalization methods for e.g. a short collection of guitar recordings, you can chose "guitar" or "string instrument" as a class, and a not commonly used word like "sks" as an instance word.
   
   ```bash
 export MODEL_NAME="audioldm-m-full"
 export DATA_DIR="path/to/concept/audios"
 export OUTPUT_DIR="path/to/output/dir"
-accelerate launch dreambooth_audio.py \
+accelerate launch dreambooth_audioldm.py \
   --pretrained_model_name_or_path=$MODEL_NAME \
   --train_data_dir=$DATA_DIR \
-  --learnable_property="object_class" \
-  --placeholder_token="sks" \
+  --instance_word="sks" \
+  --object_class="guitar" \
   --train_batch_size=1 \
   --gradient_accumulation_steps=4 \
   --max_train_steps=300 \
@@ -42,15 +45,19 @@ accelerate launch dreambooth_audio.py \
   ```
 
 #### Textual Inversion:
+
+In textual inversion you just need to specify a placeholder token, that can be any rearely used string. Here we use "<guitar>" as a placeholder token.
+
 ```bash
 export MODEL_NAME="audioldm-m-full"
 export DATA_DIR="path/to/concept/audios"
 export OUTPUT_DIR="path/to/output/dir"
-accelerate launch --num_processes 1 --main_process_port 29603 textual_inversion_audio.py \
+accelerate launch textual_inversion_audioldm.py \
   --pretrained_model_name_or_path=$MODEL_NAME \
   --train_data_dir=$DATA_DIR \
-  --learnable_property="object_class" \
-  --placeholder_token="<sks>" \
+  --learnable_property="object" \
+  --placeholder_token="<guitar>" \
+  --validation_prompt="a recording of a <guitar>" \
   --initializer="mean" \
   --initializer_token="" \
   --train_batch_size=1 \
@@ -62,6 +69,9 @@ accelerate launch --num_processes 1 --main_process_port 29603 textual_inversion_
 
 
 ### Example Inference
+
+For Textual inversion, you have to use the placeholder token used in training in the prompts, after loading the learned embeddings in the base model. For Dreambooth, you have to load the fine-tuned model and use \[instance word\] \[class-word\] in the inference prompt.
+
 ```python
 from pipeline.pipeline_audioldm import AudioLDMPipeline
 
@@ -70,13 +80,13 @@ from pipeline.pipeline_audioldm import AudioLDMPipeline
 
 pipe = AudioLDMPipeline.from_pretrained("audioldm-m-full", torch_dtype=torch.float32).to("cuda")
 learned_embedding = "path/to/learnedembedding"
-prompt = "A recording of <sks>"
+prompt = "A recording of <guitar>"
 pipe.load_textual_inversion(learned_embedding)
 waveform = pipe(prompt).audios
 
 #DreamBooth
 pipeline = AudioLDMPipeline.from_pretrained("path/to/dreambooth/model", torch_dtype=torch.float32).to("cuda")
-prompt = "A recording of a <sks> string instrument"
+prompt = "A recording of a sks guitar"
 waveform = pipe(prompt).audios
 ```
 ### Acknowledgments

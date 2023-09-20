@@ -140,7 +140,7 @@ def log_csv(csv_file,row):
             # writer.writerow(header)
             writer.writerow(row)
 
-def log_validation(text_encoder, tokenizer, unet, vae, args, accelerator, weight_dtype, global_step,vocoder,concept_audio_dir,placeholder_token_ids, validate_experiments=False):
+def log_validation(text_encoder, tokenizer, unet, vae, args, accelerator, weight_dtype, global_step,vocoder,concept_audio_dir, validate_experiments=False):
     logger.info(
         f"Running validation... \n Generating {args.num_validation_audio_files} audio files with prompt:"
         f" {args.validation_prompt}."
@@ -210,33 +210,12 @@ def log_validation(text_encoder, tokenizer, unet, vae, args, accelerator, weight
         log_csv(reconstruction_csv_path,[global_step,reconstruction_score.item()])
         # accelerator.log({"reconstruction_scored": np.float16(reconstruction_score)},step=global_step)
         del audios_rec
-
-        # val_audio_dir = os.path.join(args.output_dir, "editability_audio_{}".format(global_step))
-        # os.makedirs(val_audio_dir, exist_ok=True)
-        # for prompt in text_editability_templates:
-        #     prompt=" ".join(prompt.format(("".join(tokenizer.convert_ids_to_tokens(placeholder_token_ids)))).split())
-        #     audio = pipeline(prompt, num_inference_steps=50, generator=generator,num_waveforms_per_prompt=1).audios[0]
-        #     write(os.path.join(val_audio_dir, f"{'_'.join(prompt.split(' '))}.wav"),16000, audio)
-        
-        # text_score=evaluator.text_to_audio_similarity(val_audio_dir)
-        # print("Text score: {}".format(text_score))
-        # accelerator.log({"text_score": text_score}, step=global_step)
         del evaluator
         
     del pipeline
     torch.cuda.empty_cache()
     return audios
 
-
-def save_progress(text_encoder, placeholder_token_ids, accelerator, args, save_path):
-    logger.info("Saving embeddings")
-    learned_embeds = (
-        accelerator.unwrap_model(text_encoder)
-        .get_input_embeddings()
-        .weight[min(placeholder_token_ids) : max(placeholder_token_ids) + 1]
-    )
-    learned_embeds_dict = {args.placeholder_token: learned_embeds.detach().cpu()}
-    torch.save(learned_embeds_dict, save_path)
 
 def create_mixture(waveform1, waveform2, snr):
 
@@ -334,13 +313,7 @@ def parse_args():
     parser.add_argument(
         "--file_list", type=str, default=None, help="Path to a csv file containing which files to train on from the training data directory."
     )
-    parser.add_argument(
-        "--placeholder_token",
-        type=str,
-        default=None,
-        required=False,
-        help="A token to use as a placeholder for the concept.",
-    )
+    
     parser.add_argument("--initializer", type=str, default="random_token",choices=["random_token","random_tokens","multitoken_word","saved_embedding","mean"], help="How to initialize the placeholder.")
     parser.add_argument(
         "--initializer_token", type=str, default=None, required=False, help="A token to use as initializer word."
@@ -497,7 +470,7 @@ def parse_args():
     parser.add_argument(
         "--num_validation_audio_files",
         type=int,
-        default=4,
+        default=0,
         help="Number of audio files that should be generated during validation with `validation_prompt`.",
     )
     parser.add_argument(
@@ -757,12 +730,13 @@ class AudioInversionDataset(Dataset):
         duration=2.0,
         repeats=100,
         set="train",
-        placeholder_token="*",
-        file_list=None,
+        instance_word=None,
+        class_name=None,
         object_class=None,
         augment_data=False,
         mix_data=False,
         snr=None,
+        file_list=None,
         num_files_to_train=None
     ):
         self.data_root = data_root
@@ -772,7 +746,8 @@ class AudioInversionDataset(Dataset):
         self.learnable_property = learnable_property
         self.sample_rate = sample_rate
         self.duration = duration
-        self.placeholder_token = placeholder_token
+        self.instance_word = instance_word
+        self.class_name = class_name
         self.audioldmpipeline = audioldmpipeline
         self.augment_data = augment_data
         self.mix_data = mix_data
@@ -832,12 +807,17 @@ class AudioInversionDataset(Dataset):
         )
         # waveform, _ = torchaudio.load(audio_file, normalize=True, num_frames=int(self.duration * self.sample_rate))
         # example["waveform"] = waveform
-        placeholder_string = self.placeholder_token
-        if self.learnable_property == "object_class":
-            text = random.choice(self.templates).format(placeholder_string, self.object_class)
+        if self.instance_word and self.class_name:
+        
+            text = "a recording of a {}".format(self.instance_word+" "+self.class_name )
+            
         else:
-            text = random.choice(self.templates).format(placeholder_string)
-        text=self.instance_prompt
+            text= self.instance_prompt
+        
+        # if self.learnable_property == "object_class":
+        #     text = random.choice(self.templates).format(placeholder_string, self.object_class)
+        # else:
+        #     text = random.choice(self.templates).format(placeholder_string)
         # example["input_ids"] = self.tokenizer(
         #     text,
         #     padding="max_length",
@@ -874,25 +854,15 @@ class AudioInversionDataset(Dataset):
             
         return example
 def collate_fn(examples, with_prior_preservation=False):
-#     has_attention_mask = "instance_attention_mask" in examples[0]
-
-    # input_ids = [example["instance_prompt_ids"] for example in examples]
-    # pixel_values = [example["instance_images"] for example in examples]
     mels=[example["mel"] for example in examples]
     prompt_embeds=[example["prompt_embeds"] for example in examples]
 
-#     if has_attention_mask:
-#         attention_mask = [example["instance_attention_mask"] for example in examples]
-# # 
     # Concat class and instance examples for prior preservation.
     # We do this to avoid doing two forward passes.
     if with_prior_preservation:
         mels += [example["class_mel"] for example in examples]
         prompt_embeds += [example["class_prompt_embeds"] for example in examples]
 
-        # if has_attention_mask:
-        #     attention_mask += [example["class_attention_mask"] for example in examples]
-    
     mels = torch.stack(mels)
     mels = mels.to(memory_format=torch.contiguous_format).float()
 
@@ -1108,212 +1078,18 @@ def main():
 
 
     # Add the placeholder token in tokenizer
-    placeholder_tokens = [args.placeholder_token]
     
     if args.num_vectors < 1:
         raise ValueError(f"--num_vectors has to be larger or equal to 1, but is {args.num_vectors}")
     
-    init_embeddings_save_path=""
-    if args.initializer=="random_token":
-        print("Starting from a random embedding. If num_tokens>1, all tokens start with the same embedding.")
-
-        if args.num_vectors > 1:
-            print("Adding {} tokens to the tokenizer.".format(str(args.num_vectors)))
-
-            # add dummy tokens for multi-vector
-            additional_tokens = []
-            for i in range(1, args.num_vectors):
-                additional_tokens.append(f"{args.placeholder_token}_{i}")
-            placeholder_tokens += additional_tokens
-        
-        # the following is wrong
-        num_added_tokens = tokenizer.add_tokens(placeholder_tokens)
-        if num_added_tokens != args.num_vectors:
-            raise ValueError(
-                f"The tokenizer already contains the token {args.placeholder_token}. Please pass a different"
-                " `placeholder_token` that is not already in the tokenizer."
-            )
-
-        # initializer_token_id = token_ids[0]
-        placeholder_token_ids = tokenizer.convert_tokens_to_ids(placeholder_tokens)
-        print("placeholder_token_ids: ", placeholder_token_ids)
-
-
-        # Resize the token embeddings as we are adding new special tokens to the tokenizer
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        # Initialise the newly added placeholder token with a random embedding, and save the embedding to file
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-
-        with torch.no_grad():
-            random_embedding = torch.rand(768).to(token_embeds.device)
-            #save embedding to file
-            init_embed_dict = {}
-            init_embeddings_save_path=os.path.join(args.output_dir, "initial_embeds.bin")
-           
-            for token_id in placeholder_token_ids:
-                init_embed_dict [tokenizer.convert_ids_to_tokens(token_id)] = random_embedding.clone().detach().cpu().unsqueeze(0)
-
-                # token_embeds[token_id] = token_embeds[initializer_token_id].clone()
-                token_embeds[token_id] = random_embedding.clone()
-            if not args.resume_from_checkpoint:
-                torch.save(init_embed_dict, init_embeddings_save_path)
-
-    elif args.initializer=="random_tokens":
-        print("Starting from a random embedding. Making a random embedding for each placeholder token.")
-
-        if args.num_vectors > 1:
-            print("Adding {} tokens to the tokenizer.".format(str(args.num_vectors)))
-
-            # add dummy tokens for multi-vector
-            additional_tokens = []
-            for i in range(1, args.num_vectors):
-                additional_tokens.append(f"{args.placeholder_token}_{i}")
-            placeholder_tokens += additional_tokens
-        
-        # the following is wrong
-        num_added_tokens = tokenizer.add_tokens(placeholder_tokens)
-        if num_added_tokens != args.num_vectors:
-            raise ValueError(
-                f"The tokenizer already contains the token {args.placeholder_token}. Please pass a different"
-                " `placeholder_token` that is not already in the tokenizer."
-            )
-
-        placeholder_token_ids = tokenizer.convert_tokens_to_ids(placeholder_tokens)
-        print("placeholder_token_ids: ", placeholder_token_ids)
-
-
-        # Resize the token embeddings as we are adding new special tokens to the tokenizer
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        # Initialise the newly added placeholder token with a random embedding, and save the embedding to file
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-        with torch.no_grad():
-            init_embed_dict = {}
-            init_embeddings_save_path=os.path.join(args.output_dir, "initial_embeds.bin")
-            for token_id in placeholder_token_ids:
-                random_embedding = torch.rand(768).to(token_embeds.device)
-                init_embed_dict[tokenizer.convert_ids_to_tokens(token_id) ] = random_embedding.detach().cpu()
-                token_embeds[token_id] = random_embedding.clone()
-            if not args.resume_from_checkpoint:
-                torch.save(init_embed_dict, init_embeddings_save_path)
-    elif args.initializer=="multitoken_word":
-        
-        # Convert the initializer_token, placeholder_token to ids
-        token_ids = tokenizer.encode(args.initializer_token, add_special_tokens=False)
-
-        print("Initializer word: ", args.initializer_token)
-        print("Initializer token ids: ",token_ids)
-        # RobertaTokenizerFast.encode returns a list of ids, so we add additional tokens as needed
-        if len(token_ids) > 1:
-            args.num_vectors += len(token_ids) - 1
-        else:
-            print("You selected initializer=multitoken_word, but the initializer_token is a single token.")
-            exit()
-
-        # add dummy tokens for multi-vector
-        additional_tokens = []
-        for i in range(1, args.num_vectors):
-            additional_tokens.append(f"{args.placeholder_token}_{i}")
-        placeholder_tokens += additional_tokens
-
-        num_added_tokens = tokenizer.add_tokens(placeholder_tokens)
-        if num_added_tokens != args.num_vectors:
-            raise ValueError(
-                f"The tokenizer already contains the token {args.placeholder_token}. Please pass a different"
-                " `placeholder_token` that is not already in the tokenizer."
-            )
-
-        initializer_token_ids = token_ids
-        placeholder_token_ids = tokenizer.convert_tokens_to_ids(placeholder_tokens)
-        # Resize the token embeddings as we are adding new special tokens to the tokenizer
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        # Initialise the newly added placeholder token with the embeddings of the initializer token
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-        with torch.no_grad():
-            init_embed_dict = {}
-            init_embeddings_save_path=os.path.join(args.output_dir, "initial_embeds.bin")
-            for token_id,initializer_token_id in zip(placeholder_token_ids,initializer_token_ids):
-                init_embed_dict[tokenizer.convert_ids_to_tokens(token_id) ] = token_embeds[initializer_token_id].clone().detach().cpu()
-                token_embeds[token_id] = token_embeds[initializer_token_id].clone()
-            if not args.resume_from_checkpoint:
-                torch.save(init_embed_dict, init_embeddings_save_path)
-
-    elif args.initializer=="saved_embedding":
-        print("Starting from a saved embedding or embeddings of a concept.")
-        print("Will disregard num_vectors, placeholder token arguments.")
-
-        try:
-            embedding_dict=torch.load(args.initializer_token)
-            main_token=list(embedding_dict.keys())[0]
-            n_tokens=len(embedding_dict[main_token])
-            # n_tokens=1
-            main_token=args.placeholder_token
-            placeholder_tokens=[main_token]
-            placeholder_tokens+=[main_token+"_"+str(i) for i in range(1,n_tokens)]
-            embeddings = list(embedding_dict.values())[0]
-        except:
-            raise ValueError("Could not load embedding from file. Please check the path.")
-        
-        num_added_tokens = tokenizer.add_tokens(placeholder_tokens)
-        placeholder_token_ids = tokenizer.convert_tokens_to_ids(placeholder_tokens)
-
-        # Resize the token embeddings as we are adding new special tokens to the tokenizer
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        # Initialise the newly added placeholder token with a random embedding, and save the embedding to file
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-        with torch.no_grad():
-            for token_id,embedding in zip(placeholder_token_ids,embeddings):
-                embedding.to(token_embeds.device)
-                token_embeds[token_id] = embedding.clone()
-    elif args.initializer=="mean":
-        print("Starting from the mean vector embedding.")
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-        mean_embed=torch.mean(token_embeds, dim=0)
-        embeddings=[mean_embed for i in range(args.num_vectors)]
-        placeholder_tokens=[args.placeholder_token]
-        placeholder_tokens+=[args.placeholder_token+"_"+str(i) for i in range(args.num_vectors-1)]
-        num_added_tokens = tokenizer.add_tokens(placeholder_tokens)
-        placeholder_token_ids = tokenizer.convert_tokens_to_ids(placeholder_tokens)
-        # Resize the token embeddings as we are adding new special tokens to the tokenizer
-        text_encoder.resize_token_embeddings(len(tokenizer))
-
-        # Initialise the newly added placeholder token with a random embedding, and save the embedding to file
-        token_embeds = text_encoder.get_input_embeddings().weight.data
-        init_embeddings_save_path=os.path.join(args.output_dir, "initial_embeds.bin")
-        init_embed_dict = {}
-        with torch.no_grad():
-            for token_id,embedding in zip(placeholder_token_ids,embeddings):
-                init_embed_dict[tokenizer.convert_ids_to_tokens(token_id) ] = embedding.clone().detach().cpu()
-                embedding.to(token_embeds.device)
-                token_embeds[token_id] = embedding.clone()
-            if not args.resume_from_checkpoint:
-                torch.save(init_embed_dict, init_embeddings_save_path)
-    
-    print("placeholder_tokens: ", tokenizer.convert_ids_to_tokens(placeholder_token_ids))
-    args.validation_prompt=args.validation_prompt.replace(args.placeholder_token, ("".join(tokenizer.convert_ids_to_tokens(placeholder_token_ids))))
     print("validation_prompt: ", args.validation_prompt)
           
-    # Freeze vae and unet
+    # Freeze vae
     vae.requires_grad_(False)
-    # unet.requires_grad_(False)
-    # Freeze all parameters except for the token embeddings in text encoder
+    # Freeze text encoder unless we are training it
     if not args.train_text_encoder:
         text_encoder.requires_grad_(False)
-    # text_encoder.text_model.encoder.requires_grad_(False)
-    # # text_encoder.text_model.final_layer_norm.requires_grad_(False)
-    # text_encoder.text_model.embeddings.position_embeddings.requires_grad_(False)
-    # text_encoder.text_model.embeddings.token_type_embeddings.requires_grad_(False)
-    # text_encoder.text_model.embeddings.LayerNorm.requires_grad_(False)
-    # text_encoder.text_model.pooler.requires_grad_(False)
-    # text_encoder.text_projection.requires_grad_(False)
-
-    # for name, param in text_encoder.named_parameters():
-    #     if param.requires_grad:
-    #         print(name)
-
+    
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
             import xformers
@@ -1431,7 +1207,8 @@ def main():
         tokenizer=tokenizer,
         sample_rate=args.sample_rate,
         duration=args.duration,
-        placeholder_token=("".join(tokenizer.convert_ids_to_tokens(placeholder_token_ids))),
+        instance_word=args.instance_word,
+        class_name=args.object_class,
         repeats=args.repeats,
         learnable_property=args.learnable_property,
         set="train",
@@ -1511,7 +1288,6 @@ def main():
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
         accelerator.init_trackers("dreambooth_audio", config=vars(args))
-    # accelerator.log({"Placeholder token": args.placeholder_token})
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -1542,9 +1318,6 @@ def main():
             )
             args.resume_from_checkpoint = None
             # if we're not going to resume from checkpoint, we need to save the initial embeddings
-            if init_embeddings_save_path:
-                print("Saving initial embeddings")
-                torch.save(init_embed_dict, os.path.join(args.output_dir, "initial_embeds.bin"))
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(args.output_dir, path))
@@ -1553,30 +1326,13 @@ def main():
             resume_global_step = global_step * args.gradient_accumulation_steps
             first_epoch = global_step // num_update_steps_per_epoch
             resume_step = resume_global_step % (num_update_steps_per_epoch * args.gradient_accumulation_steps)
-            #we load the initial embedding, so we can compare it to the current embedding
-            init_embeds_path=os.path.join(args.output_dir, "initial_embeds.bin")
-            
-            if os.path.isfile(init_embeds_path):
-                init_embeds=torch.load(init_embeds_path)
-                init_embeds=torch.stack(list(init_embeds.values())).to(accelerator.device)
 
-            # orig_embeds_params = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight.data.clone()
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
     # keep original embeddings as reference
-    orig_embeds_params = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight.data.clone()
-    # print("orig_embeds_params: ", orig_embeds_params.shape)
-    # print("placeholder_token_ids: ", placeholder_token_ids)
-    # print(orig_embeds_params[min(placeholder_token_ids) : max(placeholder_token_ids) + 1].shape)
-    if not args.resume_from_checkpoint:
-        init_embeds=orig_embeds_params[min(placeholder_token_ids) : max(placeholder_token_ids) + 1].clone()
-    # init_embeds_path=os.path.join(args.output_dir, "initial_embeds.bin")
-    # init_embeds=torch.load(init_embeds_path)
-    # init_embeds=torch.stack(list(init_embeds.values()))
-    print("init_embeds: ", init_embeds.shape)
-    
+   
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         if args.train_text_encoder:
@@ -1588,49 +1344,13 @@ def main():
                     progress_bar.update(1)
                 continue
             
-            # print("mel: ", batch["mel"].shape)
-
-            # save_path = 'mel_test.jpg'
-            # mel=batch["mel"].squeeze().clone().detach().cpu().numpy()[:,:699].T
-            # librosa.display.specshow(mel, x_axis='time', y_axis='mel', sr=16000,hop_length=160,fmax=9000)
-            # pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
-            # pylab.close()
-
-            # reconstructed_audio = vocoder(batch["mel"].to("cpu",dtype=weight_dtype).squeeze(1))
-            # # print("reconstructed_audio: ", reconstructed_audio.shape)
-            # write("reconstructed_audio.wav",16000,reconstructed_audio[0].detach().cpu().numpy())
-            
             with accelerator.accumulate(unet):
 
                 # Convert audios to latent space
-                # latents = vae.encode(batch["mel"].to(dtype=weight_dtype)).latent_dist.sample().detach()
                 latents = vae.encode(batch["mel"].to(dtype=weight_dtype)).latent_dist.sample()
                 
-                # print("latent_dim: ", latents.shape)
-
-                # save_path = 'latent_plot.jpg'
-                # mel=latents.squeeze().clone().detach().cpu().numpy()[0,:,:].T
-                # print(mel.shape)
-                # librosa.display.specshow(mel, x_axis='time', y_axis='mel', sr=16000,hop_length=160,fmax=9000)
-                # pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
-                # pylab.close()
-
-                # decoded = vae.decode(latents).sample
-
-                # save_path = 'mel_vae_mel.jpg'
-                # mel=decoded.squeeze().clone().detach().cpu().numpy()[:,:699].T
-                # librosa.display.specshow(mel, x_axis='time', y_axis='mel', sr=16000,hop_length=160,fmax=9000)
-                # pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
-                # pylab.close()
-
-                # reconstructed_latents = vocoder(decoded.squeeze(1).detach().cpu())
-                # write("mel_vae_mel_vocoder.wav",16000,reconstructed_latents[0].detach().cpu().numpy())
-
-                
                 latents = latents * vae.config.scaling_factor
-                # print("latents: ", latents.shape)
                 
-
                 # Sample noise that we'll add to the latents
                 if args.offset_noise:
                     noise = torch.randn_like(latents) + 0.1 * torch.randn(
@@ -1638,44 +1358,20 @@ def main():
                     )
                 else:
                     noise = torch.randn_like(latents)
-                # bsz = latents.shape[0]
+              
                 bsz, channels, height, width = latents.shape
                 # Sample a random timestep for each image
                 timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
                 timesteps = timesteps.long()
-                # print("time_steps: ", timesteps)
 
                 # Add noise to the latents according to the noise magnitude at each timestep
                 # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                # save_path = 'latent_plot_noisy.jpg'
-                # mel=noisy_latents.squeeze().clone().detach().cpu().numpy()[0,:,:].T
-                # print(mel.shape)
-                # librosa.display.specshow(mel, x_axis='time', y_axis='mel', sr=16000,hop_length=160,fmax=9000)
-                # pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
-                # pylab.close()
-
-                # decoded = vae.decode(noisy_latents).sample
-
-                # save_path = 'mel_after.jpg'
-                # mel=decoded.squeeze().clone().detach().cpu().numpy()[:,:699].T
-                # librosa.display.specshow(mel, x_axis='time', y_axis='mel', sr=16000,hop_length=160,fmax=9000)
-                # pylab.savefig(save_path, bbox_inches=None, pad_inches=0)
-                # pylab.close()
-
-                
-                # print("decoded_mel: ", decoded.shape)
-                
-                # reconstructed_latents = vocoder(decoded.squeeze(1).detach().cpu())
-                # write("mel_vae_noise_mel_vocoder.wav",16000,reconstructed_latents[0].detach().cpu().numpy())
                 # Get the text embedding for conditioning
-                # encoder_hidden_states = text_encoder(batch["input_ids"])[0].to(dtype=weight_dtype)
                 prompt_embeds = batch["prompt_embeds"]
                 prompt_embeds = prompt_embeds.squeeze(-2)
-                # print(prompt_embeds.shape)
-                # print(timesteps.shape)
-                # print(noisy_latents.shape)
+
                 # Predict the noise residual
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states=None,class_labels=prompt_embeds).sample
                 # Get the target for loss depending on the prediction type
@@ -1688,20 +1384,16 @@ def main():
 
                 if args.with_prior_preservation:
                     # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
-                    # print("model_pred: ", model_pred.shape)
-                    # print("target: ", target.shape)
+                  
                     model_pred, model_pred_prior = torch.chunk(model_pred, 2, dim=0)
                     target, target_prior = torch.chunk(target, 2, dim=0)
-                    # print("target_prior_after chunking: ", target_prior.shape)
+
                     # Compute instance loss
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
                     # Compute prior loss
                     prior_loss = F.mse_loss(model_pred_prior.float(), target_prior.float(), reduction="mean")
-                    # print("loss: ", loss)
-                    # print("prior_loss: ", prior_loss)
-                    # print("prior_loss_weight: ", args.prior_loss_weight)
-                    # print("total loss: ", loss + args.prior_loss_weight * prior_loss)
+                   
                     # Add the prior loss to the instance loss.
                     loss = loss + args.prior_loss_weight * prior_loss
                 else:
@@ -1719,27 +1411,12 @@ def main():
                 lr_scheduler.step()
                 optimizer.zero_grad()
 
-                # # Let's make sure we don't update any embedding weights besides the newly added token
-                # index_no_updates = torch.ones((len(tokenizer),), dtype=torch.bool)
-                # index_no_updates[min(placeholder_token_ids) : max(placeholder_token_ids) + 1] = False
-                # # print("min_placeholder_token_ids: ", min(placeholder_token_ids))
-                # # print("max_placeholder_token_ids: ", max(placeholder_token_ids))
-                # # print("index_no_updates are zero in positions: ", torch.where(index_no_updates==0))
-                
-                # with torch.no_grad():
-                #     accelerator.unwrap_model(text_encoder).get_input_embeddings().weight[
-                #         index_no_updates
-                #     ] = orig_embeds_params[index_no_updates]
-
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
                 audios = []
                 progress_bar.update(1)
                 global_step += 1
-                # if global_step % args.save_steps == 0:
-                #     save_path = os.path.join(args.output_dir, f"learned_embeds-steps-{global_step}.bin")
-                #     save_progress(text_encoder, placeholder_token_ids, accelerator, args, save_path)
-
+               
                 if accelerator.is_main_process:
                     if global_step % args.checkpointing_steps == 0:
                         # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
@@ -1766,45 +1443,18 @@ def main():
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                        # if args.train_text_encoder:
-                        #     pipeline=AudioLDMPipeline.from_pretrained(
-                        #         args.pretrained_model_name_or_path,
-                        #         text_encoder=accelerator.unwrap_model(text_encoder),
-                        #         vae=vae,
-                        #         unet=accelerator.unwrap_model(unet) ,
-                        #         tokenizer=tokenizer,
-
-                        #     )
-                        # else:
-                        #     pipeline=AudioLDMPipeline.from_pretrained(
-                        #         args.pretrained_model_name_or_path,
-                        #         text_encoder=text_encoder,
-                        #         vae=vae,
-                        #         unet=accelerator.unwrap_model(unet) ,
-                        #         tokenizer=tokenizer,
-
-                        #     )
-                        # pipeline.save_pretrained(os.path.join(args.output_dir, "trained_pipeline"))
-
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                         audios = log_validation(
                             text_encoder, 
                             tokenizer, 
                             unet, vae, args, accelerator, weight_dtype, global_step, vocoder,
                             concept_audio_dir, 
-                            placeholder_token_ids=placeholder_token_ids, 
                             validate_experiments=args.validate_experiments
                         )
                     
-            current_emb = accelerator.unwrap_model(text_encoder).get_input_embeddings().weight[min(placeholder_token_ids) : max(placeholder_token_ids) + 1]
-            cosine_sim_init = F.cosine_similarity(init_embeds, current_emb)
-            embeddingnorm = current_emb.norm(2,dim=1)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0], }
-            for i,token in enumerate(placeholder_tokens):
-                logs[token+"_cosine_sim"] = cosine_sim_init[i].detach().item()
-                logs[token+"_embedding_norm"] = embeddingnorm[i].detach().item()
-
+            
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
 
@@ -1818,6 +1468,7 @@ def main():
             save_full_model = True
         else:
             save_full_model = args.save_as_full_pipeline
+            
         if save_full_model:
             # pipeline = StableDiffusionPipeline.from_pretrained(
             #     args.pretrained_model_name_or_path,
@@ -1845,10 +1496,7 @@ def main():
 
                 )
             pipeline.save_pretrained(os.path.join(args.output_dir, "trained_pipeline"))
-        # Save the newly trained embeddings
-        # save_path = os.path.join(args.output_dir, "learned_embeds.bin")
-        # save_progress(text_encoder, placeholder_token_ids, accelerator, args, save_path)
-
+    
         if args.push_to_hub:
             save_model_card(
                 repo_id,

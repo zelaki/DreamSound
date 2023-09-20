@@ -9,9 +9,10 @@ from transformers import ClapTextModelWithProjection, RobertaTokenizer, RobertaT
 
 from diffusers import AutoencoderKL, UNet2DConditionModel
 from diffusers.schedulers import KarrasDiffusionSchedulers
-from diffusers.utils import is_accelerate_available, logging, randn_tensor, replace_example_docstring
-from diffusers.pipeline_utils import  DiffusionPipeline
-from diffusers.pipelines.pipeline_utils import AudioPipelineOutput
+from diffusers.utils.torch_utils import randn_tensor
+from diffusers.utils import is_accelerate_available, logging, replace_example_docstring
+from diffusers.pipelines.pipeline_utils import  DiffusionPipeline,AudioPipelineOutput
+# from diffusers.pipelines.pipeline_utils import AudioPipelineOutput
 from diffusers.loaders import FromSingleFileMixin, LoraLoaderMixin, TextualInversionLoaderMixin
 
 
