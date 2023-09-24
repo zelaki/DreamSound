@@ -13,7 +13,8 @@ import csv
 import laion_clap
 from scipy.io.wavfile import write
 from utils import templates
-from diffusers import AudioLDMPipeline
+from pipeline.pipeline_audioldm import AudioLDMPipeline
+from pipeline.pipeline_audioldm2 import AudioLDM2Pipeline
 from frechet_audio_distance import FrechetAudioDistance
 import pandas as pd
 from accelerate.utils import set_seed
@@ -220,7 +221,7 @@ class LAIONCLAPEvaluator(object):
         exp_dir_path = os.path.dirname(os.path.dirname(generated_audio_dir))
         concept_name = os.path.basename(exp_dir_path)
 
-        with open(os.path.join("data/concept_final/", concept_name, "class_name.txt")) as fd:
+        with open(os.path.join("dataset/concepts/", concept_name, "class_name.txt")) as fd:
             object_class = [ln.rstrip() for ln in fd.readlines()]
             object_class = object_class[0]
         generated_audio_paths = [os.path.join(generated_audio_dir, p) for p in os.listdir(generated_audio_dir)]
@@ -322,7 +323,8 @@ class ExperimentEvaluator(object):
         device,
         clap_evaluator,
         method="tinv", # tinv or dreambooth
-        audioldm_model_path="audioldm-m-full"
+        audioldm_model_path="audioldm-m-full",
+       
     ):
         self.device = device
         self.clap_evaluator = clap_evaluator
@@ -489,7 +491,7 @@ class ExperimentEvaluator(object):
             verbose=False
         )
         frechet_vgg_score=frechet_vgg.score(source_dir,reconstruction_dir,dtype="float32")
-        print("Frechet score VGGish: ", frechet_vgg_score.item())
+        print("Frechet score VGGish: ", frechet_vgg_score)
         frechet_pann = FrechetAudioDistance(
             model_name="pann",
             use_pca=False, 
@@ -497,8 +499,8 @@ class ExperimentEvaluator(object):
             verbose=False
         )
         frechet_pann_score=frechet_pann.score(source_dir,reconstruction_dir,dtype="float32")
-        print("Frechet score PANN: ", frechet_pann_score.item())
-        return reconstruction_score.item(), frechet_vgg_score.item(), frechet_pann_score.item()
+        print("Frechet score PANN: ", frechet_pann_score)
+        return reconstruction_score.item(), frechet_vgg_score, frechet_pann_score
 
         
 
@@ -612,4 +614,3 @@ if __name__ == "__main__":
         method=args.method,
         create_audio=True
     )
-    
