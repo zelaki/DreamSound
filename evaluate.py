@@ -324,11 +324,13 @@ class ExperimentEvaluator(object):
         clap_evaluator,
         method="tinv", # tinv or dreambooth
         audioldm_model_path="audioldm-m-full",
-       
+        # audioldm_model_path="audioldm2-music",
+        use_audioldm2=False
     ):
         self.device = device
         self.clap_evaluator = clap_evaluator
         self.audioldm_model_path = audioldm_model_path
+        self.use_audioldm2=use_audioldm2
 
         
     def create_experiment_audio_tinv(self, path_to_embedding,experiment_prompts, n_audio_files_per_prompt=10, 
@@ -380,7 +382,10 @@ class ExperimentEvaluator(object):
                                      delete_old_files=True,
                                      random_seed=None):
         experiment_audio_dir=os.path.join(os.path.dirname(path_to_pipeline),f"{experiment_type}_audio")
-        audioldmpipeline=AudioLDMPipeline.from_pretrained(path_to_pipeline,use_safetensors=True).to("cuda")
+        if self.use_audioldm2:
+            audioldmpipeline=AudioLDM2Pipeline.from_pretrained(path_to_pipeline,use_safetensors=True).to("cuda")
+        else:
+            audioldmpipeline=AudioLDMPipeline.from_pretrained(path_to_pipeline,use_safetensors=True).to("cuda")
         generator = None if random_seed is None else torch.Generator(device=audioldmpipeline.device).manual_seed(random_seed)
 
         with open(os.path.join(os.path.dirname(path_to_pipeline),"class_name.json"), "r") as f:
@@ -527,6 +532,8 @@ class ExperimentEvaluator(object):
 def evaluate_experiments(experiments_dir,
                          clap_evaluator,
                          results_csv,
+                         audioldm_model_path="audioldm-m-full",
+                         use_audioldm2=False,
                          reconstruction_prompts=["a recording of a {}"],
                          editability_prompts=templates.text_editability_templates,
                          n_audio_files_per_prompt=4,
@@ -534,10 +541,11 @@ def evaluate_experiments(experiments_dir,
                          random_seed=None,
                          method="tinv", # tinv or dreambooth
                          step_to_evaluate_tinv="last",
-                         step_to_evaluate_dreambooth="last"
+                         step_to_evaluate_dreambooth="last",
                          ):
     
-    evaluator = ExperimentEvaluator(device=device, clap_evaluator=clap_evaluator)
+    evaluator = ExperimentEvaluator(device=device, clap_evaluator=clap_evaluator,audioldm_model_path=audioldm_model_path,
+                                    use_audioldm2=use_audioldm2)
     experiments_superdir=experiments_dir
     experiment_dirs=[os.path.join(experiments_superdir,dir) for dir in os.listdir(experiments_superdir) if os.path.isdir(os.path.join(experiments_superdir,dir))]
     experiment_names=[]
@@ -605,6 +613,8 @@ if __name__ == "__main__":
     clap_evaluator = LAIONCLAPEvaluator(device=device,laion_clap_fusion=False, laion_clap_checkpoint=args.clap_ckpt)
     evaluate_experiments(
         args.experiment_dir,
+        audioldm_model_path="audioldm2-music",
+        use_audioldm2=True,
         n_audio_files_per_prompt=4,
         clap_evaluator=clap_evaluator,
         results_csv=args.results_csv,
