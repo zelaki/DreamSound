@@ -8,7 +8,7 @@ Recently, text-to-music generation models have achieved unprecedented results in
 
 - [x] Release code!
 
-- [ ] Example code for training and evaluation
+- [x] Example code for training and evaluation
 
 - [ ] Gradio app!
 
@@ -89,5 +89,21 @@ pipeline = AudioLDMPipeline.from_pretrained("path/to/dreambooth/model", torch_dt
 prompt = "A recording of a sks guitar"
 waveform = pipe(prompt).audios
 ```
+
+
+# Citation
+
+If you use this code please cite:
+
+```
+@article{plitsis2023investigating,
+  title={Investigating Personalization Methods in Text to Music Generation},
+  author={Plitsis, Manos and Kouzelis, Theodoros and Paraskevopoulos, Georgios and Katsouros, Vassilis and Panagakis, Yannis},
+  journal={arXiv preprint arXiv:2309.11140},
+  year={2023}
+}
+```
+
+
 ### Acknowledgments
 This code is heavily  base on [AudioLDM](https://github.com/haoheliu/AudioLDM) and [Diffusers](https://github.com/huggingface/diffusers).
