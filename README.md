@@ -1,6 +1,6 @@
 # Text-to-Music Personalization
 
-#### Code for _Investigating Personalization Methods in Text to Music Generation Generation_
+#### Code for [_Investigating Personalization Methods in Text to Music Generation Generation_](https://arxiv.org/abs/2309.11140)
 
   
 
