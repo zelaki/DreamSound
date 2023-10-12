@@ -1,6 +1,6 @@
 # Text-to-Music Personalization
 
-#### Code for _Investigating Personalization Methods in Text to Music Generation Generation_
+#### Code for [_Investigating Personalization Methods in Text to Music Generation Generation_](https://arxiv.org/abs/2309.11140)
 
   
 
@@ -124,6 +124,20 @@ pipeline = pipeline.to("cuda")
 
 prompt="a recording of a sks string instrument"
 waveform=pipeline(prompt,num_inference_steps=50,num_waveforms_per_prompt=1,audio_length_in_s=5.12).audios[0]
+```
+
+
+# Citation
+
+If you use this code please cite:
+
+```
+@article{plitsis2023investigating,
+  title={Investigating Personalization Methods in Text to Music Generation},
+  author={Plitsis, Manos and Kouzelis, Theodoros and Paraskevopoulos, Georgios and Katsouros, Vassilis and Panagakis, Yannis},
+  journal={arXiv preprint arXiv:2309.11140},
+  year={2023}
+}
 ```
 
 ### Acknowledgments
