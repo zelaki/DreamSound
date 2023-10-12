@@ -67,7 +67,7 @@ def parse_args():
     )
     parser.add_argument(
         "--clap_ckpt",
-        default="music_speech_audioset_epoch_15_esc_89.98.pt",
+        default="music_audioset_epoch_15_esc_90.14.pt",
         help="CLAP model ckpt to use for audio/text similarity",
     )
 
@@ -423,16 +423,6 @@ class ExperimentEvaluator(object):
         return experiment_audio_dir
     
     
-    def calculate_frechet():
-
-        frechet = FrechetAudioDistance(
-            model_name="vggish",
-            use_pca=False, 
-            use_activation=False,
-            verbose=False
-        )
-        fad_score = frechet.score("/path/to/background/set", "/path/to/eval/set", dtype="float32")
-
     def reconstruction_score_tinv(self,path_to_embedding,
                                   source_dir="",
                                   reconstruction_dir="",
@@ -483,7 +473,7 @@ class ExperimentEvaluator(object):
         if create_audio:
             reconstruction_dir=self.create_experiment_audio_dreambooth(path_to_pipeline,reconstruction_prompts, n_audio_files_per_prompt=n_audio_files_per_prompt, experiment_type="reconstruction")
         else:
-            reconstruction_dir=os.path.join(os.path.dirname(path_to_embedding),"reconstruction_audio")
+            reconstruction_dir=os.path.join(os.path.dirname(path_to_pipeline),"reconstruction_audio")
         print("Source dir: ", source_dir)
         print("Reconstruction dir: ", reconstruction_dir)
         reconstruction_score=self.clap_evaluator.audio_to_audio_similarity(source_dir,reconstruction_dir)
