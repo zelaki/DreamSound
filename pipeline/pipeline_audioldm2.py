@@ -40,7 +40,7 @@ from diffusers.utils import (
 )
 from diffusers.utils.torch_utils import randn_tensor
 from diffusers.pipelines.pipeline_utils import AudioPipelineOutput, DiffusionPipeline
-from .modeling_audioldm2 import AudioLDM2ProjectionModel, AudioLDM2UNet2DConditionModel
+from pipeline.modeling_audioldm2 import AudioLDM2ProjectionModel, AudioLDM2UNet2DConditionModel
 from diffusers.loaders import TextualInversionLoaderMixin
 
 
