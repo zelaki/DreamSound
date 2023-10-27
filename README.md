@@ -19,7 +19,7 @@ Recently, text-to-music generation models have achieved unprecedented results in
 pip install -r requirements.txt
 git clone https://huggingface.co/cvssp/audioldm-m-full
   ```
-  
+  You need [Git Large File Storage](https://git-lfs.com/) for cloning the huggingface model.
   ### Training Examples
 
   #### DreamBooth:
