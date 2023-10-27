@@ -2,7 +2,7 @@
 
 #### Code for [_Investigating Personalization Methods in Text to Music Generation Generation_](https://arxiv.org/abs/2309.11140)
 
-  
+[![arXiv](https://img.shields.io/badge/arXiv-2301.12503-brightgreen.svg?style=flat-square)](https://arxiv.org/abs/2309.11140) [![githubio](https://img.shields.io/badge/GitHub.io-Audio_Samples-blue?logo=Github&style=flat-square)](https://zelaki.github.io/)
 
 Recently, text-to-music generation models have achieved unprecedented results in synthesizing high-quality and diverse music samples from a given text prompt. Despite these advances, it remains unclear how one can generate personalized, user-specific musical concepts, manipulate them, and combine them with existing ones. For example, can one generate a rock song using their personal guitar playing style or a specific ethnic instrument? Motivated by the computer vision literature, we investigate text-to-music personalization by exploring two established methods, namely **Textual Inversion** and **DreamBooth**.
 
@@ -143,4 +143,4 @@ If you use this code please cite:
 ```
 
 ### Acknowledgments
-This code is heavily  base on [AudioLDM](https://github.com/haoheliu/AudioLDM) and [Diffusers](https://github.com/huggingface/diffusers).
+This code is heavily based on [AudioLDM](https://github.com/haoheliu/AudioLDM) and [Diffusers](https://github.com/huggingface/diffusers).
