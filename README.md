@@ -1,20 +1,23 @@
 # Text-to-Music Personalization
 
-#### Code for _Investigating Personalization Methods in Text to Music Generation Generation_
+#### Code for [_Investigating Personalization Methods in Text to Music Generation Generation_](https://arxiv.org/abs/2309.11140)
 
   
 
-Recently, text-to-music generation models have achieved unprecedented results in synthesizing high-quality and diverse music samples from a given text prompt. Despite these advances, it remains unclear how one can generate personalized, user-specific musical concepts, manipulate them, and combine them with existing ones. For example, can one generate a rock song using their personal guitar playing style or a specific ethnic instrument? Motivated by the computer vision literature, we investigate text-to-music \textit{personalization} by exploring two established methods, namely Textual Inversion and Dreambooth. Using quantitative metrics and a user study, we evaluate their ability to reconstruct and modify new musical concepts, given only a few samples. Finally, we provide a new dataset and propose an evaluation protocol for this new task.
+Recently, text-to-music generation models have achieved unprecedented results in synthesizing high-quality and diverse music samples from a given text prompt. Despite these advances, it remains unclear how one can generate personalized, user-specific musical concepts, manipulate them, and combine them with existing ones. For example, can one generate a rock song using their personal guitar playing style or a specific ethnic instrument? Motivated by the computer vision literature, we investigate text-to-music personalization by exploring two established methods, namely **Textual Inversion** and **DreamBooth**.
 
 - [x] Release code!
 
-- [ ] Example code for training and evaluation
+- [x] Example code for training and evaluation
+
+- [x] DreamBooth with AudioLDM2
 
 - [ ] Gradio app!
 
 - [ ] Release code for Personalized Style Transfer
   
 ### Install the dependencies and download AudioLDM:
+Use python 3.10.13
   ```
 pip install -r requirements.txt
 git clone https://huggingface.co/cvssp/audioldm-m-full
@@ -78,16 +81,66 @@ from pipeline.pipeline_audioldm import AudioLDMPipeline
 
 #Textual Inversion
 
-pipe = AudioLDMPipeline.from_pretrained("audioldm-m-full", torch_dtype=torch.float32).to("cuda")
+pipe = AudioLDMPipeline.from_pretrained("audioldm-m-full", torch_dtype=torch.float16).to("cuda")
 learned_embedding = "path/to/learnedembedding"
 prompt = "A recording of <guitar>"
 pipe.load_textual_inversion(learned_embedding)
 waveform = pipe(prompt).audios
 
 #DreamBooth
-pipeline = AudioLDMPipeline.from_pretrained("path/to/dreambooth/model", torch_dtype=torch.float32).to("cuda")
+pipeline = AudioLDMPipeline.from_pretrained("path/to/dreambooth/model", torch_dtype=torch.float16).to("cuda")
 prompt = "A recording of a sks guitar"
 waveform = pipe(prompt).audios
 ```
+
+### AudioLDM2 DreamBooth
+
+To train AudioLDM2 DreamBooth:
+
+```bash
+export MODEL_NAME="cvssp/audioldm2"
+export DATA_DIR="dataset/concepts/oud"
+export OUTPUT_DIR="oud_ldm2_db_string_instrument"
+accelerate launch dreambooth_audioldm2.py \
+--pretrained_model_name_or_path=$MODEL_NAME \
+--train_data_dir=$DATA_DIR \
+--instance_word="sks" \
+--object_class="string instrument" \
+--train_batch_size=1 \
+--gradient_accumulation_steps=4 \
+--max_train_steps=300 \
+--learning_rate=1.0e-05 \
+--output_dir=$OUTPUT_DIR \
+--validation_steps=50 \
+--num_validation_audio_files=3 \
+--num_vectors=1 \
+```
+
+And for inference:
+
+```python
+from pipeline.pipeline_audioldm2 import AudioLDM2Pipeline
+
+pipeline = AudioLDM2Pipeline.from_pretrained("path/to/dreambooth/model", torch_dtype=torch.float16)
+pipeline = pipeline.to("cuda")
+
+prompt="a recording of a sks string instrument"
+waveform=pipeline(prompt,num_inference_steps=50,num_waveforms_per_prompt=1,audio_length_in_s=5.12).audios[0]
+```
+
+
+# Citation
+
+If you use this code please cite:
+
+```
+@article{plitsis2023investigating,
+  title={Investigating Personalization Methods in Text to Music Generation},
+  author={Plitsis, Manos and Kouzelis, Theodoros and Paraskevopoulos, Georgios and Katsouros, Vassilis and Panagakis, Yannis},
+  journal={arXiv preprint arXiv:2309.11140},
+  year={2023}
+}
+```
+
 ### Acknowledgments
 This code is heavily  base on [AudioLDM](https://github.com/haoheliu/AudioLDM) and [Diffusers](https://github.com/huggingface/diffusers).
